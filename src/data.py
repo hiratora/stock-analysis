@@ -1,6 +1,6 @@
 """無料データ層（yfinance）。
 
-- 銘柄一覧: JPX公開の東証上場銘柄一覧（data_j.xls）。内国株式のプライム/スタンダード/グロースに絞る
+- 銘柄一覧: JPX公開の東証上場銘柄一覧（data_j.xlsx）。内国株式のプライム/スタンダード/グロースに絞る
 - 日足: yfinance（<code>.T）。分割調整済み(auto_adjust=True)。data/quotes.parquet に増分キャッシュ
 - 地合い: TOPIX連動ETF 1306.T の終値を TOPIX の代用として data/topix.parquet に保存
 - 決算発表予定日: 無料経路では取れない。候補に残った銘柄だけ手動で確認する（README参照）
@@ -23,7 +23,7 @@ QUOTES = DATA_DIR / "quotes.parquet"
 TOPIX = DATA_DIR / "topix.parquet"
 LISTED = DATA_DIR / "listed.parquet"
 
-JPX_LIST_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+JPX_LIST_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx"
 TOPIX_PROXY = "1306.T"
 MARKETS = ("プライム（内国株式）", "スタンダード（内国株式）", "グロース（内国株式）")
 CHUNK = 150          # yfinance に一度に渡す銘柄数
