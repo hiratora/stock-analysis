@@ -1,0 +1,37 @@
+name: daily-screen
+on:
+  schedule:
+    # 毎営業日 18:30 JST (09:30 UTC)。Yahooの東証日足は大引け後1〜2時間で反映される。
+    # 最初の数日は screen.md の as-of 日付が当日になっているか確認し、遅れていれば時刻を後ろにずらす
+    - cron: "30 9 * * 1-5"
+  workflow_dispatch:
+  push:
+    paths: ["watchlist.txt"]     # watchlist を編集したら即分析
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - name: restore data cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: yf-data-${{ github.run_id }}
+          restore-keys: yf-data-
+      - name: screen
+        if: ${{ github.event_name != 'push' }}
+        run: python -m src.screen
+      - name: watchlist
+        run: python -m src.watch
+      - name: commit outputs
+        run: |
+          git config user.name "screener-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add outputs
+          git commit -m "outputs $(date -u +%F)" || echo "no changes"
+          git push
