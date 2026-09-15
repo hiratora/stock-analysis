@@ -6,7 +6,7 @@ on:
     - cron: "30 9 * * 1-5"
   workflow_dispatch:
   push:
-    paths: ["watchlist.txt", ".github/workflows/daily.yml"]     # 一時変更: 初回実行トリガー用。実行後に watchlist.txt のみへ戻す
+    paths: ["watchlist.txt"]     # watchlist を編集したら即分析
 permissions:
   contents: write
 jobs:
@@ -24,7 +24,7 @@ jobs:
           key: yf-data-${{ github.run_id }}
           restore-keys: yf-data-
       - name: screen
-        # 一時変更: 初回実行のため if を外している。実行後に if: ${{ github.event_name != 'push' }} を戻す
+        if: ${{ github.event_name != 'push' }}
         run: python -m src.screen
       - name: watchlist
         run: python -m src.watch
