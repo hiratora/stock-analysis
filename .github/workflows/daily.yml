@@ -4,6 +4,8 @@ on:
     # 毎営業日 18:30 JST (09:30 UTC)。Yahooの東証日足は大引け後1〜2時間で反映される。
     # 最初の数日は screen.md の as-of 日付が当日になっているか確認し、遅れていれば時刻を後ろにずらす
     - cron: "30 9 * * 1-5"
+    # 予備: 18:30の実行でYahoo側の日足が未反映だった日のための再実行（21:00 JST）
+    - cron: "0 12 * * 1-5"
   workflow_dispatch:
   push:
     paths: ["watchlist.txt"]     # watchlist を編集したら即分析
@@ -26,6 +28,9 @@ jobs:
       - name: screen
         if: ${{ github.event_name != 'push' }}
         run: python -m src.screen
+      - name: universe (全銘柄スナップショットと基本スクリーニング)
+        if: ${{ github.event_name != 'push' }}
+        run: python -m src.universe --offline
       - name: watchlist
         run: python -m src.watch
       - name: commit outputs
