@@ -8,7 +8,7 @@ on:
     - cron: "0 12 * * 1-5"
   workflow_dispatch:
   push:
-    paths: ["watchlist.txt", ".github/workflows/daily.yml"]     # 一時変更: 手動実行代替。完了後に watchlist.txt のみへ戻す
+    paths: ["watchlist.txt"]     # watchlist を編集したら即分析
 permissions:
   contents: write
 jobs:
@@ -26,10 +26,10 @@ jobs:
           key: yf-data-${{ github.run_id }}
           restore-keys: yf-data-
       - name: screen
-        if: true  # 一時変更: 手動実行代替。完了後に github.event_name != 'push' へ戻す
+        if: ${{ github.event_name != 'push' }}
         run: python -m src.screen
       - name: universe (全銘柄スナップショットと基本スクリーニング)
-        if: true  # 一時変更: 手動実行代替。完了後に github.event_name != 'push' へ戻す
+        if: ${{ github.event_name != 'push' }}
         run: python -m src.universe --offline
       - name: watchlist
         run: python -m src.watch
