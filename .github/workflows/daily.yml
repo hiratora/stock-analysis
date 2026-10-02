@@ -1,11 +1,11 @@
 name: daily-screen
 on:
   schedule:
-    # 毎営業日 18:30 JST (09:30 UTC)。Yahooの東証日足は大引け後1〜2時間で反映される。
+    # 毎営業日 19:17 JST (10:17 UTC)。GitHubの定時実行は毎時0分・30分が混雑して数時間遅れるため、半端な分にずらす。Yahooの東証日足は大引け後1〜2時間で反映される。
     # 最初の数日は screen.md の as-of 日付が当日になっているか確認し、遅れていれば時刻を後ろにずらす
-    - cron: "30 9 * * 1-5"
-    # 予備: 18:30の実行でYahoo側の日足が未反映だった日のための再実行（21:00 JST）
-    - cron: "0 12 * * 1-5"
+    - cron: "17 10 * * 1-5"
+    # 予備: 21:43 JST。1回目が失敗・取りこぼした日の再実行
+    - cron: "43 12 * * 1-5"
   workflow_dispatch:
   push:
     paths: ["watchlist.txt"]     # watchlist を編集したら即分析

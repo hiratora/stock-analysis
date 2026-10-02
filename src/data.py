@@ -26,7 +26,7 @@ LISTED = DATA_DIR / "listed.parquet"
 JPX_LIST_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx"
 TOPIX_PROXY = "1306.T"
 MARKETS = ("プライム（内国株式）", "スタンダード（内国株式）", "グロース（内国株式）")
-CHUNK = 150          # yfinance に一度に渡す銘柄数
+CHUNK = 40           # yfinance に一度に渡す銘柄数（大きいとYahooに制限されて大半が欠ける）
 LOOKBACK_DAYS = 3 * 365
 
 
@@ -40,7 +40,8 @@ def fetch_listed() -> pd.DataFrame:
         "name": raw["銘柄名"], "market": raw["市場・商品区分"], "sector33": raw["33業種区分"],
         "scale": raw.get("規模区分", ""),
     })
-    df = df[df["market"].isin(MARKETS)].reset_index(drop=True)
+    df = df[df["market"].isin(MARKETS)]
+    df = df[df["code"].str.len() == 4].reset_index(drop=True)   # 5桁（優先株・社債型種類株式）は除外
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     df.to_parquet(LISTED)
     return df
@@ -53,13 +54,13 @@ def load_listed() -> pd.DataFrame:
 
 
 # ---------- quotes ----------
-def _download(tickers: list[str], start: dt.date, downloader=None) -> pd.DataFrame:
+def _download(tickers: list[str], start: dt.date, downloader=None, chunk: int = CHUNK, pause: float = 2.0) -> pd.DataFrame:
     """yfinance の MultiIndex 出力を long 形式に正規化。downloader は検証用の差し替え口。"""
     import yfinance as yf
     dl = downloader or yf.download
     frames = []
-    for i in range(0, len(tickers), CHUNK):
-        part = tickers[i:i + CHUNK]
+    for i in range(0, len(tickers), chunk):
+        part = tickers[i:i + chunk]
         for attempt in range(3):
             try:
                 raw = dl(part, start=start.isoformat(), auto_adjust=True, group_by="ticker",
@@ -70,7 +71,7 @@ def _download(tickers: list[str], start: dt.date, downloader=None) -> pd.DataFra
                     raise
                 time.sleep(10 * (attempt + 1))
         frames.append(normalize_yf(raw, part))
-        time.sleep(1.0)
+        time.sleep(pause)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
@@ -105,7 +106,22 @@ def update_quotes(codes: list[str], downloader=None) -> pd.DataFrame:
     else:
         # 直近5営業日を取り直して、Yahoo側の遅延・修正を吸収
         start = cached["date"].max().date() - dt.timedelta(days=7)
-    new = _download([f"{c}.T" for c in codes], start, downloader)
+    tickers = [f"{c}.T" for c in codes]
+    new = _download(tickers, start, downloader)
+    # 取りこぼし（制限で空が返った銘柄）を、間隔を空けて最大3回取り直す
+    for attempt in range(3):
+        if new.empty:
+            missing = tickers
+        else:
+            latest = new["date"].max()
+            got = set(new.loc[new["date"] == latest, "code"])
+            missing = [t for t in tickers if t.replace(".T", "") not in got]
+        if len(missing) <= len(tickers) * 0.02:
+            break
+        print(f"retry {attempt + 1}: {len(missing)} 銘柄を取り直し")
+        time.sleep(30 * (attempt + 1))
+        more = _download(missing, start, downloader, chunk=20, pause=3.0)
+        new = pd.concat([new, more], ignore_index=True)
     if not new.empty:
         cached = pd.concat([cached, new], ignore_index=True)
         cached = cached.drop_duplicates(["code", "date"], keep="last").sort_values(["code", "date"])
@@ -113,7 +129,26 @@ def update_quotes(codes: list[str], downloader=None) -> pd.DataFrame:
         cutoff = pd.Timestamp(dt.date.today() - dt.timedelta(days=LOOKBACK_DAYS))
         cached = cached[cached["date"] >= cutoff]
         cached.to_parquet(QUOTES)
+    check_coverage(cached, expected=codes)
     return cached
+
+
+MIN_COVERAGE = 0.85
+
+
+def check_coverage(q: pd.DataFrame, expected: list[str] | None = None) -> None:
+    """最新日の日足が取れた銘柄の割合を確認する。足りなければ失敗させ、前回の出力を上書きしない。
+    分母は取得を依頼した全銘柄（データが1本も返らなかった銘柄も数える）。平常時は約95%。"""
+    last = q.groupby("code")["date"].max()
+    if expected is not None:
+        last = last.reindex(list(dict.fromkeys(expected)))
+    latest = last.max()
+    hit = int((last == latest).sum())
+    cov = hit / len(last) if len(last) else 0.0
+    if cov < MIN_COVERAGE:
+        raise SystemExit(f"データ未更新: {latest.date()} の日足が取れたのは {hit}/{len(last)} 銘柄"
+                         f"（{cov:.0%}）。Yahoo側の反映待ちか制限。出力は更新しない。")
+    print(f"coverage {latest.date()}: {hit}/{len(last)} ({cov:.0%})")
 
 
 def quotes_for(code: str, downloader=None) -> pd.DataFrame:
