@@ -7,6 +7,7 @@
 - 約定・決済は `src/paper.py settle` が GitHub Actions 内で機械的に行う（翌営業日寄り建て、利確 +5% / 損切り -2.5% / 最大保有10営業日、片道0.1%コスト）。Claude の仕事は **何を・いつ・いくら買うか、何を手仕舞うか** の判断と、その記録。
 - データは Yahoo の日足のみ。決算日・信用残・業績進捗は無い。**決算日は買う前に必ず Web 検索で確認する（kabutan 等）。決算またぎ禁止。**
 - 場中に Actions を回さない（未確定バーで判定してしまう）。`workflow_dispatch` はこの環境から叩けない。
+- 定時実行が遅れて outputs が古いときは、引け後（15:30 JST 以降）であればセッション内で `python -m src.screen && python -m src.universe --offline && python -m src.paper settle` を直接回してよい（約10〜20分）。その結果の `outputs/` と `paper/` はコミットしてよい（後で bot が同じ日付で上書きする）。
 
 ## ファイル
 | ファイル | 誰が書く | 内容 |
@@ -44,9 +45,12 @@ id,fill_after,code,side,qty,tp_pct,sl_pct,max_hold,reason,status,fill_date,fill_
 6. 建値の目安は前日終値。TP/SL は約定後に paper.py が建値基準で引き直す。
 7. 1〜3 銘柄に絞る。選ばなかった理由も journal に書く（後で検証できるように）。
 
-## 夜の手順（20:05 JST 起動）
+## 夜の手順（22:20 JST 起動。19:17 と予備 21:43 の定時実行が終わった後）
 1. `git pull origin main`。`outputs/latest/screen.md` の as-of が今日（JST）か確認。
-   - 今日でなければ GitHub Actions の最新 run を見る。失敗（coverage 不足）なら `send_later` で 22:20 JST に再チェックを予約して終了。21:43 の予備実行後にもう一度確認する。
+   - 今日でなければ `git log --oneline -5` で bot の「outputs <日付>」コミットの有無を見る。無ければ定時実行が遅延か失敗（coverage 不足）。
+     その場合は **新規注文を出さず**、journal に「データ未更新のため見送り」と書いて終了する。古いデータで注文しない。
+   - 定期セッションでは GitHub API や send_later 等のコネクタは使えない前提で動く（git と Web 検索だけで完結させる）。
+   - `paper/journal.md` に既に今日の「夜」の節があれば、別セッションが済ませている。その場合は注文を追加せず、内容を確認して矛盾があれば journal に追記するだけで終える。
 2. `outputs/latest/paper.md` を読む。本日の約定・決済があれば **1件ずつ振り返り** を journal に書く: 選定理由は妥当だったか、決済理由（TP/SL/SL_GAP/TIME）は想定内か、同じ判断を次もするか。
 3. 保有銘柄の手仕舞い判断。規則上は TP/SL/TIME で自動決済されるので、手動 sell は「前提が崩れた」とき（業種RSが崩れた、地合いが下に転換、悪材料）に限る。
 4. 上の「銘柄選定の順序」で新規候補を決め、`orders.csv` に追記。
