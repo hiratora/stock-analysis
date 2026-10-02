@@ -31,12 +31,15 @@ jobs:
       - name: universe (全銘柄スナップショットと基本スクリーニング)
         if: ${{ github.event_name != 'push' }}
         run: python -m src.universe --offline
+      - name: paper (仮想取引の約定・決済)
+        if: ${{ github.event_name != 'push' }}
+        run: python -m src.paper settle
       - name: watchlist
         run: python -m src.watch
       - name: commit outputs
         run: |
           git config user.name "screener-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add outputs
+          git add outputs paper
           git commit -m "outputs $(date -u +%F)" || echo "no changes"
           git push
