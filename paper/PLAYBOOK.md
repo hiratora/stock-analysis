@@ -74,3 +74,4 @@ id,fill_after,code,side,qty,tp_pct,sl_pct,max_hold,reason,status,fill_date,fill_
 | 日付 | 変更 | 理由 |
 |---|---|---|
 | 2026-10-02 | 初版 | — |
+| 2026-10-02 | 夜の起動を 22:20 JST に。遅延時はセッション内で取得 | 定時実行が数時間遅れるため |
