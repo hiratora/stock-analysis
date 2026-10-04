@@ -10,7 +10,14 @@
   equity.csv     日次の資産推移
   state.json     現金・開始資金
 
-決済規則は backtest.py と同一（利確 +5% / 損切り -2.5% / 同日両方なら損切り / ギャップは寄り値 / 最大保有10営業日で引け）。
+決済規則（注文ごとに指定、空欄は既定値 DEFAULTS）
+  sl_pct / sl_atr      初期ストップ（建値比 % または ATR14 の倍数）
+  trail_pct / trail_atr トレーリングストップ（エントリー後の最高終値からの下落率 / ATR 倍数）。引け後に更新し翌日から有効
+  be_pct               建値撤退: 最高終値が建値×(1+be_pct) を超えたらストップを建値以上に引き上げ、トレールもそこから開始
+  tp_pct               利確（空欄なら利確せず引っ張る）
+  ma_exit              10 or 25: 終値がその移動平均を割ったら引けで撤退（エントリー3日目以降）
+  max_hold             最大保有営業日。到達したら引け
+判定順序は毎日: 寄りがストップ以下→寄り値 / 安値がストップ以下→ストップ値 / 寄りが利確以上→寄り値 / 高値が利確以上→利確値 / 引け後にストップ更新。
 コストは往復 0.2% を片道 0.1% ずつ約定値に乗せる。
 データは終値確定後のものだけを使う前提。場中に回すと未確定バーで判定してしまう。
 """
@@ -33,10 +40,15 @@ ORDERS, POSITIONS, TRADES, EQUITY, STATE = (PAPER_DIR / f for f in
 START_CAPITAL = 2_000_000
 MONTHLY_GOAL = 100_000
 HALF_COST = bt.COST / 2
+# 既定の決済規則（paper/research の探索結果に基づく。変更は PLAYBOOK の変更履歴に残す）
+DEFAULTS = {"sl_pct": -0.04, "sl_atr": None, "tp_pct": None, "trail_pct": 0.06, "trail_atr": None,
+            "be_pct": None, "ma_exit": None, "max_hold": 30}
+EXIT_PARAMS = ["sl_pct", "sl_atr", "tp_pct", "trail_pct", "trail_atr", "be_pct", "ma_exit", "max_hold"]
 
-ORDER_COLS = ["id", "fill_after", "code", "side", "qty", "tp_pct", "sl_pct", "max_hold", "reason",
-              "status", "fill_date", "fill_price", "note"]
-POS_COLS = ["code", "name", "entry_date", "entry_price", "qty", "tp_price", "sl_price", "max_hold", "hold_days",
+ORDER_COLS = ["id", "fill_after", "code", "side", "qty", "tp_pct", "sl_pct", "max_hold", "trail_pct", "be_pct",
+              "sl_atr", "trail_atr", "ma_exit", "reason", "status", "fill_date", "fill_price", "note"]
+POS_COLS = ["code", "name", "entry_date", "entry_price", "qty", "tp_price", "sl_price", "stop_price", "high_close",
+            "atr0", "trail_pct", "trail_atr", "be_pct", "ma_exit", "max_hold", "hold_days",
             "last_date", "last_close", "unrealized_pct", "unrealized_yen", "order_id", "reason"]
 TRADE_COLS = ["code", "name", "entry_date", "entry_price", "exit_date", "exit_price", "qty", "ret_pct", "pnl_yen",
               "exit_reason", "hold_days", "order_id", "reason"]
@@ -79,31 +91,83 @@ def _bars(quotes: pd.DataFrame, code: str) -> pd.DataFrame:
     return g
 
 
-def _exit_walk(g: pd.DataFrame, e: int, ep: float, tp: float, sl: float, max_hold: int, start_k: int,
-               sell_k: int | None = None):
-    """backtest.simulate と同じ順序で決済判定。start_k から走査し (exit_index, exit_price, reason) か None。
-    sell_k は手動売りが約定するバー（その寄りで決済し、その日の TP/SL は見ない）。"""
+def _f(v, default=None):
+    """csv の文字列/NaN を float か None に"""
+    try:
+        if v is None or (isinstance(v, float) and np.isnan(v)) or str(v).strip() in ("", "nan", "None"):
+            return default
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _atr0(g: pd.DataFrame, e: int) -> float:
+    """エントリー前日（シグナル日）時点の ATR14"""
+    h, l, c = g["high"], g["low"], g["close"]
+    tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
+    a = tr.rolling(14).mean()
+    v = a.iloc[e - 1] if e >= 1 else np.nan
+    return float(v) if np.isfinite(v) else float(a.dropna().iloc[-1]) if a.notna().any() else 0.0
+
+
+def _exit_walk(g: pd.DataFrame, e: int, ep: float, prm: dict, st: dict, start_k: int, sell_k: int | None = None):
+    """経路依存の決済判定。prm = 決済規則、st = {"stop", "hi", "sl0"}（更新される）。
+    start_k から走査し (exit_index, exit_price, reason) か None。sell_k は手動売りが約定するバー。"""
     o, h, l, c = g["open"].values, g["high"].values, g["low"].values, g["close"].values
     n = len(g)
+    max_hold = int(prm["max_hold"])
+    tp = ep * (1 + prm["tp_pct"]) if prm.get("tp_pct") is not None else np.inf
+    ma = None
+    if prm.get("ma_exit"):
+        ma = g["close"].rolling(int(prm["ma_exit"])).mean().values
     end = min(e + max_hold, n)
     if sell_k is not None:
         sell_k = max(sell_k, start_k)
         end = min(end, sell_k)
     for k in range(start_k, end):
-        if k > e and o[k] / ep - 1 <= sl:
-            return k, o[k], "SL_GAP"
-        if l[k] / ep - 1 <= sl:
-            return k, ep * (1 + sl), "SL"
-        if k > e and o[k] / ep - 1 >= tp:
+        stop, sl0 = st["stop"], st["sl0"]
+        trailing = stop > sl0 + 1e-9
+        if k > e and o[k] <= stop:
+            return k, o[k], "TRAIL_GAP" if trailing else "SL_GAP"
+        if l[k] <= stop:
+            return k, stop, "TRAIL" if trailing else "SL"
+        if k > e and o[k] >= tp:
             return k, o[k], "TP"
-        if h[k] / ep - 1 >= tp:
-            return k, ep * (1 + tp), "TP"
+        if h[k] >= tp:
+            return k, tp, "TP"
+        # 引け後の更新（翌日から有効）
+        st["hi"] = max(st["hi"], c[k])
+        if ma is not None and k > e + 2 and np.isfinite(ma[k]) and c[k] < ma[k]:
+            return k, c[k], "MA"
+        hi = st["hi"]
+        be = prm.get("be_pct")
+        armed = be is None or hi >= ep * (1 + be)
+        if prm.get("trail_pct") is not None and armed:
+            st["stop"] = max(st["stop"], hi * (1 - prm["trail_pct"]), ep if be is not None else -np.inf)
+        if prm.get("trail_atr") is not None and armed and st.get("atr0"):
+            st["stop"] = max(st["stop"], hi - prm["trail_atr"] * st["atr0"], ep if be is not None else -np.inf)
+        if k == e + max_hold - 1:
+            return k, c[k], "TIME"
     if sell_k is not None and sell_k < e + max_hold and sell_k <= n - 1:
         return sell_k, o[sell_k], "MANUAL"
-    if n - 1 >= e + max_hold - 1:
-        k = e + max_hold - 1
-        return k, c[k], "TIME"
     return None
+
+
+def _params_from_order(od) -> dict:
+    prm = {}
+    for k in EXIT_PARAMS:
+        v = _f(od.get(k)) if hasattr(od, "get") else None
+        prm[k] = v if v is not None else DEFAULTS[k]
+    if prm["sl_pct"] is None and prm["sl_atr"] is None:
+        prm["sl_pct"] = -0.04
+    prm["max_hold"] = int(prm["max_hold"])
+    return prm
+
+
+def _params_from_position(p) -> dict:
+    return {"sl_pct": None, "sl_atr": None, "tp_pct": (_f(p["tp_price"]) / float(p["entry_price"]) - 1) if _f(p["tp_price"]) else None,
+            "trail_pct": _f(p["trail_pct"]), "trail_atr": _f(p["trail_atr"]), "be_pct": _f(p["be_pct"]),
+            "ma_exit": _f(p["ma_exit"]), "max_hold": int(float(p["max_hold"]))}
 
 
 def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = None) -> str:
@@ -162,9 +226,10 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
         if start_k > len(g) - 1:
             keep.append(p); continue
         ep = float(p["entry_price"])
-        tp, sl = float(p["tp_price"]) / ep - 1, float(p["sl_price"]) / ep - 1
+        prm = _params_from_position(p)
+        st = {"stop": _f(p["stop_price"], _f(p["sl_price"])), "sl0": _f(p["sl_price"]), "hi": _f(p["high_close"], ep), "atr0": _f(p["atr0"], 0.0)}
         si, sk = pending_sell(p["code"], g)
-        r = _exit_walk(g, e, ep, tp, sl, int(p["max_hold"]), start_k, sk)
+        r = _exit_walk(g, e, ep, prm, st, start_k, sk)
         if r is not None:
             k, price, why = r
             close_position(p, g["date"].iloc[k], price, why, k - e + 1)
@@ -173,6 +238,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
         else:
             k = len(g) - 1
             p = p.copy()
+            p["stop_price"] = round(st["stop"], 2); p["high_close"] = round(st["hi"], 2)
             p["hold_days"] = k - e + 1
             p["last_date"] = str(g["date"].iloc[k].date())
             p["last_close"] = round(float(g["close"].iloc[k]), 2)
@@ -202,21 +268,26 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
         if ep * qty > cash:
             orders.loc[i, ["status", "note"]] = ["rejected", f"現金不足 {cash:,.0f} < {ep * qty:,.0f}"]
             continue
-        tp = float(od["tp_pct"]) if pd.notna(od["tp_pct"]) else bt.TP
-        sl = float(od["sl_pct"]) if pd.notna(od["sl_pct"]) else bt.SL
-        mh = int(od["max_hold"]) if pd.notna(od["max_hold"]) else bt.MAX_HOLD
+        prm = _params_from_order(od)
+        atr0 = _atr0(g, e)
+        sl0 = ep * (1 + prm["sl_pct"]) if prm["sl_pct"] is not None else ep - prm["sl_atr"] * atr0
         cash -= ep * qty
         orders.loc[i, ["status", "fill_date", "fill_price"]] = ["filled", str(g["date"].iloc[e].date()), round(ep, 2)]
         p = pd.Series({
             "code": od["code"], "name": names.get(od["code"], ""), "entry_date": str(g["date"].iloc[e].date()),
-            "entry_price": round(ep, 2), "qty": qty, "tp_price": round(ep * (1 + tp), 2), "sl_price": round(ep * (1 + sl), 2),
-            "max_hold": mh, "hold_days": 1, "last_date": str(g["date"].iloc[e].date()),
+            "entry_price": round(ep, 2), "qty": qty,
+            "tp_price": round(ep * (1 + prm["tp_pct"]), 2) if prm["tp_pct"] is not None else "",
+            "sl_price": round(sl0, 2), "stop_price": round(sl0, 2), "high_close": round(ep, 2), "atr0": round(atr0, 2),
+            "trail_pct": prm["trail_pct"] if prm["trail_pct"] is not None else "", "trail_atr": prm["trail_atr"] if prm["trail_atr"] is not None else "",
+            "be_pct": prm["be_pct"] if prm["be_pct"] is not None else "", "ma_exit": int(prm["ma_exit"]) if prm["ma_exit"] else "",
+            "max_hold": prm["max_hold"], "hold_days": 1, "last_date": str(g["date"].iloc[e].date()),
             "last_close": round(float(g["close"].iloc[e]), 2), "unrealized_pct": 0.0, "unrealized_yen": 0,
             "order_id": od["id"], "reason": od["reason"],
         })
-        log.append(f"約定 {od['code']} {p['name']} {qty}株 @{ep:.1f} ({str(g['date'].iloc[e].date())})")
+        log.append(f"約定 {od['code']} {p['name']} {qty}株 @{ep:.1f} ({str(g['date'].iloc[e].date())}) 初期SL {sl0:.1f}")
+        st = {"stop": sl0, "sl0": sl0, "hi": ep, "atr0": atr0}
         si, sk = pending_sell(od["code"], g)
-        r = _exit_walk(g, e, ep, tp, sl, mh, e, sk)
+        r = _exit_walk(g, e, ep, prm, st, e, sk)
         if r is not None:
             k, price, why = r
             close_position(p, g["date"].iloc[k], price, why, k - e + 1)
@@ -224,6 +295,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
                 mark_sell_filled(si, g["date"].iloc[k], price)
         else:
             k = len(g) - 1
+            p["stop_price"] = round(st["stop"], 2); p["high_close"] = round(st["hi"], 2)
             p["hold_days"] = k - e + 1
             p["last_date"] = str(g["date"].iloc[k].date())
             p["last_close"] = round(float(g["close"].iloc[k]), 2)
@@ -274,11 +346,13 @@ def report(asof=None, orders=None, pos=None, trades=None, equity=None, state=Non
         L += ["", "## 本日の約定・決済"] + [f"- {x}" for x in log]
     L += ["", f"## 保有 {len(pos)} 件"]
     if len(pos):
-        L.append("| code | name | 建日 | 建値 | 株数 | 利確 | 損切 | 保有日 | 終値 | 含み% | 含み円 | 根拠 |")
-        L.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        L.append("| code | name | 建日 | 建値 | 株数 | 現在ストップ | 初期SL | 最高終値 | 利確 | 保有日 | 終値 | 含み% | 含み円 | 根拠 |")
+        L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for _, p in pos.iterrows():
+            tpv = _f(p["tp_price"]); stp = _f(p["stop_price"], _f(p["sl_price"])); hc = _f(p["high_close"], float(p["entry_price"]))
             L.append(f"| {p['code']} | {p['name']} | {p['entry_date']} | {float(p['entry_price']):.1f} | {int(p['qty'])} | "
-                     f"{float(p['tp_price']):.1f} | {float(p['sl_price']):.1f} | {int(p['hold_days'])}/{int(p['max_hold'])} | "
+                     f"{stp:.1f} ({(stp / float(p['entry_price']) - 1) * 100:+.1f}%) | {float(p['sl_price']):.1f} | {hc:.1f} | {f'{tpv:.1f}' if tpv else 'なし'} | "
+                     f"{int(p['hold_days'])}/{int(float(p['max_hold']))} | "
                      f"{float(p['last_close']):.1f} | {float(p['unrealized_pct']):+.2f}% | {float(p['unrealized_yen']):+,.0f} | {p['reason']} |")
     else:
         L.append("なし")
@@ -311,7 +385,7 @@ def report(asof=None, orders=None, pos=None, trades=None, equity=None, state=Non
         for _, r in equity.tail(15).iterrows():
             L.append(f"| {r['date']} | {float(r['equity']):,.0f} | {float(r['cash']):,.0f} | {float(r['position_value']):,.0f} | "
                      f"{float(r['realized_cum']):+,.0f} | {int(r['n_positions'])} |")
-    L += ["", "注: 約定は注文日の翌営業日の寄り値、片道0.1%のコスト込み。決済規則はバックテストと同一。"]
+    L += ["", f"注: 約定は注文日の翌営業日の寄り値、片道0.1%のコスト込み。既定の決済: 初期SL {DEFAULTS['sl_pct']*100:+.0f}% / トレール {DEFAULTS['trail_pct']*100:.0f}%（最高終値比） / 利確 {'なし' if DEFAULTS['tp_pct'] is None else DEFAULTS['tp_pct']} / 最大 {DEFAULTS['max_hold']} 営業日。注文ごとに上書き可。"]
     return "\n".join(L)
 
 
