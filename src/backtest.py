@@ -2,7 +2,7 @@
 
 ルール（戦略と同一）:
   エントリー: シグナル日の翌営業日の寄り
-  利確 +5% / 損切り -2.5%（エントリー価格比）、両方同日なら損切り優先（保守的）
+  利確 +12% / 損切り -6%（エントリー価格比）、両方同日なら損切り優先（保守的）
   寄りが損切り線を割っていれば寄り値で決済（ギャップダウンは -2.5% では止まらない）
   寄りが利確線を超えていれば寄り値で決済
   保有中に出た同一銘柄のシグナルは無視（重複計上しない）
@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TP, SL, MAX_HOLD, COST = 0.05, -0.025, 10, 0.002
+TP, SL, MAX_HOLD, COST = 0.12, -0.06, 15, 0.002   # 2026-10-05 変更。旧: 0.05, -0.025, 10（paper/research 参照）
 
 
 def simulate(g: pd.DataFrame, sig_col: str) -> pd.DataFrame:

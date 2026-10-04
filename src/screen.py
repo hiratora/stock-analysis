@@ -81,7 +81,7 @@ def run(offline: bool, out_root: Path = Path("outputs")) -> Path:
             "flag_gap": "OK" if r["ok_gap"] else "NG",
             "ev_pct": round(ev * 100, 2), "win_rate": round(wr * 100, 1), "n_hist": n, "ev_source": src,
             "ev_stock_pct": round(pc_ev * 100, 2) if pc_n else None, "n_stock": pc_n,
-            "tp_ref": round(r["close"] * 1.05, 1), "sl_ref": round(r["close"] * 0.975, 1),
+            "tp_ref": round(r["close"] * (1 + bt.TP), 1), "sl_ref": round(r["close"] * (1 + bt.SL), 1),
         })
     res = pd.DataFrame(rows)
     if len(res):
@@ -143,10 +143,10 @@ def _md(asof, reg, glob, by_regime, res: pd.DataFrame) -> str:
                      f"{r['dev25_pct']:+.1f}% | {'上' if r['above75'] else '下' if r['above75'] is not None else '-'} | {'○' if r['hi52w'] else ''} | {r['flag_liquidity']} | {r['flag_atr']} | {r['flag_extended']} | {r['flag_gap']} | "
                      f"{r['ev_pct']:+.2f}% | {r['win_rate']}% | {r['n_hist']} | {r['ev_source']} | {stock_ev} | {r['tp_ref']} | {r['sl_ref']} |")
     L.append("")
-    L.append("注: EV=勝率×平均利幅+(1-勝率)×平均損幅、1トレード・ポジション対比、往復コスト0.2%込み、ギャップダウン損失込み。"
+    L.append("注: EV=勝率×平均利幅+(1-勝率)×平均損幅、1トレード・ポジション対比、往復コスト0.2%込み、ギャップダウン損失込み。決済規則は backtest.py の TP/SL/MAX_HOLD。"
              "主EVは「シグナル種別×今日の地合い」の全銘柄実績（n<30なら全体）。銘柄EVは参考値で、n が小さいほど信用しない。"
              "フラグ: 流動性=20日平均売買代金5億以上 / ATR=ATR14÷終値2.5%以下 / 乖離=25日線乖離7%以下 / ギャップ=当日騰落6%以下。"
-             "利確・損切目安は終値基準。実際の建値は翌日寄りなので、寄り後に建値×1.05／×0.975で引き直す。次回決算日は無料データに無いので買う前に確認する。")
+             "利確・損切目安は終値基準。実際の建値は翌日寄りなので、寄り後に建値×(1+利確率)／×(1+損切率)で引き直す。次回決算日は無料データに無いので買う前に確認する。")
     return "\n".join(L)
 
 

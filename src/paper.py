@@ -41,8 +41,8 @@ START_CAPITAL = 2_000_000
 MONTHLY_GOAL = 100_000
 HALF_COST = bt.COST / 2
 # 既定の決済規則（paper/research の探索結果に基づく。変更は PLAYBOOK の変更履歴に残す）
-DEFAULTS = {"sl_pct": -0.04, "sl_atr": None, "tp_pct": None, "trail_pct": 0.06, "trail_atr": None,
-            "be_pct": None, "ma_exit": None, "max_hold": 30}
+DEFAULTS = {"sl_pct": -0.06, "sl_atr": None, "tp_pct": 0.12, "trail_pct": None, "trail_atr": None,
+            "be_pct": None, "ma_exit": None, "max_hold": 15}
 EXIT_PARAMS = ["sl_pct", "sl_atr", "tp_pct", "trail_pct", "trail_atr", "be_pct", "ma_exit", "max_hold"]
 
 ORDER_COLS = ["id", "fill_after", "code", "side", "qty", "tp_pct", "sl_pct", "max_hold", "trail_pct", "be_pct",
@@ -325,6 +325,18 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
 
 
 # ---------- report ----------
+def describe_defaults() -> str:
+    d = DEFAULTS; parts = []
+    parts.append(f"初期SL {d['sl_pct']*100:+.0f}%" if d["sl_pct"] is not None else f"初期SL ATR×{d['sl_atr']}")
+    parts.append(f"利確 {d['tp_pct']*100:+.0f}%" if d["tp_pct"] is not None else "利確なし")
+    if d["trail_pct"] is not None: parts.append(f"トレール {d['trail_pct']*100:.0f}%")
+    if d["trail_atr"] is not None: parts.append(f"トレール ATR×{d['trail_atr']}")
+    if d["be_pct"] is not None: parts.append(f"建値撤退 +{d['be_pct']*100:.0f}%で発動")
+    if d["ma_exit"]: parts.append(f"{int(d['ma_exit'])}日線割れで撤退")
+    parts.append(f"最大 {d['max_hold']} 営業日")
+    return " / ".join(parts)
+
+
 def report(asof=None, orders=None, pos=None, trades=None, equity=None, state=None, log=None) -> str:
     orders = _read(ORDERS, ORDER_COLS) if orders is None else orders
     pos = _read(POSITIONS, POS_COLS) if pos is None else pos
@@ -385,7 +397,7 @@ def report(asof=None, orders=None, pos=None, trades=None, equity=None, state=Non
         for _, r in equity.tail(15).iterrows():
             L.append(f"| {r['date']} | {float(r['equity']):,.0f} | {float(r['cash']):,.0f} | {float(r['position_value']):,.0f} | "
                      f"{float(r['realized_cum']):+,.0f} | {int(r['n_positions'])} |")
-    L += ["", f"注: 約定は注文日の翌営業日の寄り値、片道0.1%のコスト込み。既定の決済: 初期SL {DEFAULTS['sl_pct']*100:+.0f}% / トレール {DEFAULTS['trail_pct']*100:.0f}%（最高終値比） / 利確 {'なし' if DEFAULTS['tp_pct'] is None else DEFAULTS['tp_pct']} / 最大 {DEFAULTS['max_hold']} 営業日。注文ごとに上書き可。"]
+    L += ["", "注: 約定は注文日の翌営業日の寄り値、片道0.1%のコスト込み。既定の決済: " + describe_defaults() + "。注文ごとに上書き可。"]
     return "\n".join(L)
 
 

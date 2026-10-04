@@ -1,4 +1,4 @@
-id,fill_after,code,side,qty,tp_pct,sl_pct,max_hold,reason,status,fill_date,fill_price,note
-20261005-01,2026-10-02,7752,buy,200,,,,pullback/4flagOK/電気機器RS2位/rs60+15%/決算11月7日,pending,,,
-20261005-02,2026-10-02,8410,buy,1200,,,,pullback/4flagOK/銀行業RS首位/rs60+17%/決算11月上旬見込み,pending,,,
-20261005-03,2026-10-02,9201,buy,100,,,,pullback/4flagOK/空運業RS上位/代金65億/決算10月末-11月初,pending,,,
+id,fill_after,code,side,qty,tp_pct,sl_pct,max_hold,trail_pct,be_pct,sl_atr,trail_atr,ma_exit,reason,status,fill_date,fill_price,note
+20261005-01,2026-10-02,7752,buy,200,,,,,,,,,pullback/4flagOK/電気機器RS2位/rs60+15%/決算11月7日,pending,,,
+20261005-02,2026-10-02,8410,buy,1200,,,,,,,,,pullback/4flagOK/銀行業RS首位/rs60+17%/決算11月上旬見込み,pending,,,
+20261005-03,2026-10-02,9201,buy,100,,,,,,,,,pullback/4flagOK/空運業RS上位/代金65億/決算10月末-11月初,pending,,,
