@@ -1,1 +1,4 @@
-code,name,entry_date,entry_price,qty,tp_price,sl_price,max_hold,hold_days,last_date,last_close,unrealized_pct,unrealized_yen,order_id,reason
+code,name,entry_date,entry_price,qty,tp_price,sl_price,stop_price,high_close,atr0,trail_pct,trail_atr,be_pct,ma_exit,max_hold,hold_days,last_date,last_close,unrealized_pct,unrealized_yen,order_id,reason
+7752,リコー,2026-10-05,1669.67,200,1870.03,1569.49,1569.49,1669.67,36.35,,,,,15,1,2026-10-05,1661.5,-0.49,-1634,20261005-01,pullback/4flagOK/電気機器RS2位/rs60+15%/決算11月7日
+8410,セブン銀行,2026-10-05,337.14,1200,377.59,316.91,316.91,337.14,6.17,,,,,15,1,2026-10-05,336.8,-0.1,-404,20261005-02,pullback/4flagOK/銀行業RS首位/rs60+17%/決算11月上旬見込み
+9201,日本航空,2026-10-05,2986.98,100,3345.42,2807.76,2807.76,3011.0,52.59,,,,,15,1,2026-10-05,3011.0,0.8,2402,20261005-03,pullback/4flagOK/空運業RS上位/代金65億/決算10月末-11月初
