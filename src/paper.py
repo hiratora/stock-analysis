@@ -34,6 +34,12 @@ import pandas as pd
 from . import backtest as bt
 from . import data as D
 
+# pandas 3 は文字列列を専用 str 型に推論し、数値の代入が TypeError になる。記録ファイルは object 型で扱う
+try:
+    pd.set_option("future.infer_string", False)
+except Exception:  # noqa: 古い pandas にはこのオプションが無い
+    pass
+
 PAPER_DIR = Path(os.environ.get("SS_PAPER_DIR", "paper"))
 ORDERS, POSITIONS, TRADES, EQUITY, STATE = (PAPER_DIR / f for f in
                                             ("orders.csv", "positions.csv", "trades.csv", "equity.csv", "state.json"))
@@ -59,14 +65,15 @@ EQ_COLS = ["date", "cash", "position_value", "equity", "realized_cum", "n_positi
 def _read(path: Path, cols: list[str]) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=cols)
-    df = pd.read_csv(path, dtype=str)      # 空セルは NaN。数値は使う側で float()/int() に変換する
+    raw = pd.read_csv(path, dtype=str)      # 空セルは NaN。数値は使う側で float()/int() に変換する
+    out = {}
     for c in cols:
-        if c not in df.columns:
-            df[c] = np.nan
-    df = df.astype(object)
+        vals = raw[c].tolist() if c in raw.columns else [np.nan] * len(raw)
+        out[c] = np.array([v if isinstance(v, str) else np.nan for v in vals], dtype=object)
+    df = pd.DataFrame(out, columns=cols, dtype=object)
     if "code" in df.columns:
-        df["code"] = df["code"].astype(str).str.strip().str.zfill(4)
-    return df[cols]
+        df["code"] = np.array([v.strip().zfill(4) if isinstance(v, str) else v for v in df["code"]], dtype=object)
+    return df
 
 
 def _write(df: pd.DataFrame, path: Path) -> None:
@@ -218,6 +225,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
     keep = []
     for _, p in pos.iterrows():
         g = _bars(quotes, p["code"])
+        p = pd.Series(p.to_dict(), dtype=object)
         if g.empty or not (g["date"] == pd.Timestamp(p["entry_date"])).any():
             keep.append(p); continue
         e = int(g.index[g["date"] == pd.Timestamp(p["entry_date"])][0])
@@ -237,7 +245,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
                 mark_sell_filled(si, g["date"].iloc[k], price)
         else:
             k = len(g) - 1
-            p = p.copy()
+            p = pd.Series(p.to_dict(), dtype=object)
             p["stop_price"] = round(st["stop"], 2); p["high_close"] = round(st["hi"], 2)
             p["hold_days"] = k - e + 1
             p["last_date"] = str(g["date"].iloc[k].date())
@@ -245,7 +253,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
             p["unrealized_pct"] = round((float(g["close"].iloc[k]) / ep - 1) * 100, 2)
             p["unrealized_yen"] = round((float(g["close"].iloc[k]) - ep) * int(p["qty"]))
             keep.append(p)
-    pos = pd.DataFrame(keep, columns=POS_COLS) if keep else pd.DataFrame(columns=POS_COLS)
+    pos = pd.DataFrame([dict(x) for x in keep], columns=POS_COLS, dtype=object) if keep else pd.DataFrame(columns=POS_COLS, dtype=object)
 
     # 3) 買い注文 → 翌営業日の寄りで約定し、その日から決済判定
     for i, od in orders.iterrows():
@@ -283,7 +291,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
             "max_hold": prm["max_hold"], "hold_days": 1, "last_date": str(g["date"].iloc[e].date()),
             "last_close": round(float(g["close"].iloc[e]), 2), "unrealized_pct": 0.0, "unrealized_yen": 0,
             "order_id": od["id"], "reason": od["reason"],
-        })
+        }, dtype=object)
         log.append(f"約定 {od['code']} {p['name']} {qty}株 @{ep:.1f} ({str(g['date'].iloc[e].date())}) 初期SL {sl0:.1f}")
         st = {"stop": sl0, "sl0": sl0, "hi": ep, "atr0": atr0}
         si, sk = pending_sell(od["code"], g)
@@ -301,7 +309,7 @@ def settle(quotes: pd.DataFrame | None = None, listed: pd.DataFrame | None = Non
             p["last_close"] = round(float(g["close"].iloc[k]), 2)
             p["unrealized_pct"] = round((float(g["close"].iloc[k]) / ep - 1) * 100, 2)
             p["unrealized_yen"] = round((float(g["close"].iloc[k]) - ep) * qty)
-            pos = pd.concat([pos, p.to_frame().T], ignore_index=True)
+            pos = pd.concat([pos, pd.DataFrame([dict(p)], columns=POS_COLS, dtype=object)], ignore_index=True)
 
     # 4) 保有が無く、約定待ちの買いも無い売り注文は却下
     for i, od in orders.iterrows():
