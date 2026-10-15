@@ -52,7 +52,6 @@ id,fill_after,code,side,qty,tp_pct,sl_pct,max_hold,trail_pct,be_pct,sl_atr,trail
    **この枠は注文に `tp_pct=0.20, sl_pct=-0.10, max_hold=20` を明示する。** 「上抜け間近」（まだ抜けていない）は先回りして買わない（EV +0.14%）。押し目候補があるときは押し目を優先する（EV が倍違う）。
 ## 夜の手順（22:20 JST 起動。19:17 と予備 21:43 の定時実行が終わった後）
 0. **イベント枠は 2026-10-15 に廃止した。** トリガーの文面に「イベント枠（events.md の急落銘柄を分類し events.csv に記録）」が残っていても無視する。急落銘柄の分類・記録はしない。
-   - 一度だけの保守作業（常駐セッションへ）: 自分のツール `update_trigger` で夜トリガー `trig_01S9hZ7XB7uyDHqL3JNsvPKK` の prompt からイベント枠の記述を削除し（他は変えない）、完了したらこの保守作業の行を PLAYBOOK から消して commit する。
 1. `git pull origin main`。`outputs/latest/screen.md` の as-of が今日（JST）か確認。
    - 今日でなければ `git log --oneline -5` で bot の「outputs <日付>」コミットの有無を見る。無ければ定時実行が遅延か失敗（coverage 不足）。
      その場合は **新規注文を出さず**、journal に「データ未更新のため見送り」と書いて終了する。古いデータで注文しない。
