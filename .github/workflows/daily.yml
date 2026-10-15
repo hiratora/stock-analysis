@@ -34,6 +34,9 @@ jobs:
       - name: events (急落銘柄の候補リスト)
         if: ${{ github.event_name != 'push' }}
         run: python -m src.events --offline
+      - name: ichimoku (雲上抜け候補)
+        if: ${{ github.event_name != 'push' }}
+        run: python -m src.ichimoku --offline
       - name: paper (仮想取引の約定・決済)
         if: ${{ github.event_name != 'push' }}
         run: python -m src.paper settle
