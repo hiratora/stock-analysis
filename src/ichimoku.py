@@ -40,19 +40,21 @@ def ichimoku(g: pd.DataFrame) -> pd.DataFrame:
     g["span_b_raw"] = (h.rolling(52).max() + l.rolling(52).min()) / 2
     g["span_a"] = g["span_a_raw"].shift(26)
     g["span_b"] = g["span_b_raw"].shift(26)
-    g["cloud_top"] = g[["span_a", "span_b"]].max(axis=1)
-    g["cloud_bot"] = g[["span_a", "span_b"]].min(axis=1)
+    # 先行スパンA/B のどちらかが未定義（履歴 78 日未満）なら雲も未定義にする。片方だけで雲を作ると厚さ 0 の偽の雲になる
+    g["cloud_top"] = g[["span_a", "span_b"]].max(axis=1, skipna=False)
+    g["cloud_bot"] = g[["span_a", "span_b"]].min(axis=1, skipna=False)
     g["chikou_up"] = c > c.shift(26)
     g["future_bull"] = g["span_a_raw"] > g["span_b_raw"]
-    g["above_cloud"] = c > g["cloud_top"]
-    g["cross_up"] = g["above_cloud"] & ~g["above_cloud"].shift(1).fillna(False).astype(bool)
+    valid = g["cloud_top"].notna()
+    g["above_cloud"] = (c > g["cloud_top"]) & valid
+    g["cross_up"] = g["above_cloud"] & ~g["above_cloud"].shift(1).fillna(False).astype(bool) & valid.shift(1).fillna(False).astype(bool)
     g["dist_top"] = g["cloud_top"] / c - 1
     g["cloud_thick"] = (g["cloud_top"] - g["cloud_bot"]) / c
     g["ret5"] = c / c.shift(5) - 1
     g["turn20"] = (c * g["volume"]).rolling(20).mean()
     tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
     g["atr_pct"] = tr.rolling(14).mean() / c
-    g["pre_break"] = ((~g["above_cloud"]) & (g["dist_top"] <= MAX_DIST) & (c >= g["cloud_bot"] * 0.99)
+    g["pre_break"] = (valid & (~g["above_cloud"]) & (g["dist_top"] <= MAX_DIST) & (c >= g["cloud_bot"] * 0.99)
                       & (g["tenkan"] > g["kijun"]) & (c > g["kijun"]) & g["chikou_up"] & g["future_bull"] & (g["ret5"] > 0))
     g["break_confirmed"] = g["cross_up"] & (g["tenkan"] > g["kijun"]) & g["chikou_up"] & g["future_bull"]
     return g
