@@ -25,20 +25,25 @@ jobs:
           path: data
           key: yf-data-${{ github.run_id }}
           restore-keys: yf-data-
+      - name: guard (場中なら何もしない。定時実行が翌日の場中まで遅れることがある)
+        id: guard
+        run: |
+          H=$(TZ=Asia/Tokyo date +%H); D=$(TZ=Asia/Tokyo date +%u)
+          if [ "$D" -le 5 ] && [ "$H" -ge 8 ] && [ "$H" -lt 16 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "場中 (JST $(TZ=Asia/Tokyo date +%H:%M)) のため実行しない"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
       - name: screen
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name != 'push' && steps.guard.outputs.skip != 'true' }}
         run: python -m src.screen
       - name: universe (全銘柄スナップショットと基本スクリーニング)
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name != 'push' && steps.guard.outputs.skip != 'true' }}
         run: python -m src.universe --offline
       - name: events (急落銘柄の候補リスト)
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name != 'push' && steps.guard.outputs.skip != 'true' }}
         run: python -m src.events --offline
       - name: ichimoku (雲上抜け候補)
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name != 'push' && steps.guard.outputs.skip != 'true' }}
         run: python -m src.ichimoku --offline
       - name: paper (仮想取引の約定・決済)
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name != 'push' && steps.guard.outputs.skip != 'true' }}
         run: python -m src.paper settle
       - name: watchlist
         run: python -m src.watch

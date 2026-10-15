@@ -98,6 +98,23 @@ def normalize_yf(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
         columns=["code", "date", "open", "high", "low", "close", "volume", "turnover"])
 
 
+JST = dt.timezone(dt.timedelta(hours=9))
+MARKET_CLOSE_JST = dt.time(15, 45)   # 大引け 15:30 の後、Yahoo の日足が確定するまでの余裕
+
+
+def drop_unfinished_today(df: pd.DataFrame, now: dt.datetime | None = None) -> pd.DataFrame:
+    """場中（JST 15:45 前）に取得した当日のバーは未確定なので捨てる。GitHub の定時実行が翌日の場中まで遅れることがある。"""
+    if df is None or df.empty:
+        return df
+    now = now or dt.datetime.now(JST)
+    today = pd.Timestamp(now.date())
+    if now.weekday() < 5 and now.time() < MARKET_CLOSE_JST and (pd.to_datetime(df["date"]) == today).any():
+        n = int((pd.to_datetime(df["date"]) == today).sum())
+        print(f"場中のため {today.date()} の未確定バー {n} 行を捨てる（JST {now.strftime('%H:%M')}）")
+        return df[pd.to_datetime(df["date"]) != today]
+    return df
+
+
 def update_quotes(codes: list[str], downloader=None) -> pd.DataFrame:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     cached = pd.read_parquet(QUOTES) if QUOTES.exists() else pd.DataFrame()
@@ -122,6 +139,7 @@ def update_quotes(codes: list[str], downloader=None) -> pd.DataFrame:
         time.sleep(30 * (attempt + 1))
         more = _download(missing, start, downloader, chunk=20, pause=3.0)
         new = pd.concat([new, more], ignore_index=True)
+    new = drop_unfinished_today(new)
     if not new.empty:
         cached = pd.concat([cached, new], ignore_index=True)
         cached = cached.drop_duplicates(["code", "date"], keep="last").sort_values(["code", "date"])
@@ -165,7 +183,7 @@ def quotes_for(code: str, downloader=None) -> pd.DataFrame:
 # ---------- TOPIX proxy ----------
 def update_topix(downloader=None) -> pd.DataFrame:
     start = dt.date.today() - dt.timedelta(days=LOOKBACK_DAYS)
-    df = _download([TOPIX_PROXY], start, downloader)
+    df = drop_unfinished_today(_download([TOPIX_PROXY], start, downloader))
     if df.empty:
         raise RuntimeError("TOPIX代用(1306.T)が取得できない")
     df = df[["date", "open", "high", "low", "close"]].sort_values("date")
