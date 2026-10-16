@@ -1,1 +1,2 @@
 code,name,entry_date,entry_price,exit_date,exit_price,qty,ret_pct,pnl_yen,exit_reason,hold_days,order_id,reason
+9201,日本航空,2026-10-05,2986.98,2026-10-16,2944.05,100,-1.44,-4293,MANUAL,9,20261005-03,pullback/4flagOK/空運業RS上位/代金65億/決算10月末-11月初
