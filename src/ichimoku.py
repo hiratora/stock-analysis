@@ -176,7 +176,7 @@ def run(out_root: Path = Path("outputs")) -> Path:
     listed = D.load_listed()
     df = screen(quotes, listed)
     asof = quotes["date"].max()
-    for d in (out_root / asof.strftime("%Y-%m-%d"), out_root / "latest"):
+    for d in (out_root / asof.strftime("%Y-%m-%d"), out_root / "latest") if not D.latest_is_newer(asof, out_root) else (out_root / asof.strftime("%Y-%m-%d"),):
         d.mkdir(parents=True, exist_ok=True)
         df.to_csv(d / "ichimoku.csv", index=False)
         (d / "ichimoku.md").write_text(_md(asof, df))

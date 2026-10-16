@@ -99,7 +99,7 @@ def run(offline: bool = True, out_root: Path = Path("outputs")) -> Path:
     listed = D.load_listed()
     ev = find_events(quotes, listed)
     asof = quotes["date"].max()
-    for d in (out_root / asof.strftime("%Y-%m-%d"), out_root / "latest"):
+    for d in (out_root / asof.strftime("%Y-%m-%d"), out_root / "latest") if not D.latest_is_newer(asof, out_root) else (out_root / asof.strftime("%Y-%m-%d"),):
         d.mkdir(parents=True, exist_ok=True)
         ev.to_csv(d / "events.csv", index=False)
         (d / "events.md").write_text(_md(asof, ev))

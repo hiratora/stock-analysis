@@ -194,3 +194,26 @@ def update_topix(downloader=None) -> pd.DataFrame:
 
 def load_topix() -> pd.DataFrame:
     return pd.read_parquet(TOPIX)
+
+
+# ---------- outputs ----------
+def latest_asof(out_root: Path = Path("outputs")) -> "dt.date | None":
+    """outputs/latest に記録済みの as-of（screen の stats.json）。無ければ None"""
+    import json
+    f = out_root / "latest" / "stats.json"
+    if not f.exists():
+        return None
+    try:
+        return dt.date.fromisoformat(json.loads(f.read_text())["asof"])
+    except Exception:  # noqa
+        return None
+
+
+def latest_is_newer(asof, out_root: Path = Path("outputs")) -> bool:
+    """既存の latest が今回の as-of より新しい（＝今回は古いデータ）なら True。遅延実行による上書きを防ぐ"""
+    cur = latest_asof(out_root)
+    asof = pd.Timestamp(asof).date()
+    if cur is not None and cur > asof:
+        print(f"outputs/latest は {cur} 時点で、今回の {asof} より新しいので latest は上書きしない")
+        return True
+    return False

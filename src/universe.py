@@ -111,7 +111,7 @@ def run(offline: bool, out_root: Path = Path("outputs")) -> Path:
     s = basic_screen(u)
     sec = sector_rs(u)
     asof = str(u["date"].iloc[0])
-    for d in (out_root / asof, out_root / "latest"):
+    for d in (out_root / asof, out_root / "latest") if not D.latest_is_newer(asof, out_root) else (out_root / asof,):
         d.mkdir(parents=True, exist_ok=True)
         u.round(4).to_csv(d / "universe.csv", index=False)
         s.head(TOP_N).round(4).to_csv(d / "basic_screen.csv", index=False)

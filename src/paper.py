@@ -410,7 +410,8 @@ def report(asof=None, orders=None, pos=None, trades=None, equity=None, state=Non
 
 
 def write_outputs(md: str, asof: str, out_root: Path = Path("outputs")) -> None:
-    for d in (out_root / asof, out_root / "latest"):
+    dirs = (out_root / asof,) if D.latest_is_newer(asof, out_root) else (out_root / asof, out_root / "latest")
+    for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
         (d / "paper.md").write_text(md)
 

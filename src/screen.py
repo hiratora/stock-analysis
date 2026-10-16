@@ -98,10 +98,11 @@ def run(offline: bool, out_root: Path = Path("outputs")) -> Path:
         "n_trades_total": int(len(tr_f)),
     }, ensure_ascii=False, indent=2, default=float))
     (out / "screen.md").write_text(_md(asof, reg_today, glob, by_regime, res))
-    latest = out_root / "latest"
-    latest.mkdir(parents=True, exist_ok=True)
-    for f in ("screen.md", "screen.csv", "stats.json"):
-        (latest / f).write_text((out / f).read_text())
+    if not D.latest_is_newer(asof, out_root):
+        latest = out_root / "latest"
+        latest.mkdir(parents=True, exist_ok=True)
+        for f in ("screen.md", "screen.csv", "stats.json"):
+            (latest / f).write_text((out / f).read_text())
     return out
 
 
