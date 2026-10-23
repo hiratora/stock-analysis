@@ -1,2 +1,4 @@
 code,name,entry_date,entry_price,exit_date,exit_price,qty,ret_pct,pnl_yen,exit_reason,hold_days,order_id,reason
 9201,日本航空,2026-10-05,2986.98,2026-10-16,2944.05,100,-1.44,-4293,MANUAL,9,20261005-03,pullback/4flagOK/空運業RS上位/代金65億/決算10月末-11月初
+7752,リコー,2026-10-05,1669.67,2026-10-23,1844.15,200,10.45,34897,MANUAL,14,20261005-01,pullback/4flagOK/電気機器RS2位/rs60+15%/決算11月7日
+8410,セブン銀行,2026-10-05,337.14,2026-10-23,334.86,1200,-0.67,-2730,MANUAL,14,20261005-02,pullback/4flagOK/銀行業RS首位/rs60+17%/決算11月上旬見込み
